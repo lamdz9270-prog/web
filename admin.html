@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Shop File Vip | Quản Trị</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--primary:#6C63FF;--secondary:#FF6584;--accent:#00D4FF;--bg:#0a0a1a;--sidebar-bg:#111128;--card-bg:#1a1a3a;--text:#f0f0ff;--text-light:#a0a0c0;--border:rgba(255,255,255,0.06);--shadow:0 8px 32px rgba(0,0,0,0.4);--radius:16px;--transition:0.3s cubic-bezier(0.4,0,0.2,1);--sidebar-width:260px}
+:root{--primary:#6C63FF;--secondary:#FF6584;--accent:#00D4FF;--bg:#0a0a1a;--sidebar-bg:#111128;--card-bg:#1a1a3a;--text:#f0f0ff;--text-light:#a0a0c0;--border:rgba(255,255,255,0.06);--shadow:0 8px 32px rgba(0,0,0,0.4);--radius:16px;--transition:0.3s;--sidebar-width:260px}
 [data-theme=light]{--bg:#f0f2f8;--sidebar-bg:#ffffff;--card-bg:#ffffff;--text:#1a1a2e;--text-light:#6b7280;--border:rgba(0,0,0,0.08);--shadow:0 8px 32px rgba(0,0,0,0.06)}
 html,body{height:100%}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;overflow-x:hidden;transition:background .3s,color .3s}
@@ -86,6 +87,14 @@ th{color:var(--text-light);font-weight:600}
 .support-ticket .ticket-status.resolved{background:rgba(52,211,153,0.15);color:#34d399}
 .support-ticket .ticket-meta{font-size:13px;color:var(--text-light);margin:4px 0}
 .support-ticket .ticket-message{margin:6px 0}
+.manual-payment-item{padding:12px;border-bottom:1px solid var(--border)}
+.manual-payment-item .payment-header{display:flex;justify-content:space-between;flex-wrap:wrap}
+.manual-payment-item .payment-header strong{font-size:16px}
+.manual-payment-item .payment-status{font-weight:600;padding:2px 12px;border-radius:30px;font-size:12px}
+.manual-payment-item .payment-status.pending{background:rgba(251,191,36,0.15);color:#fbbf24}
+.manual-payment-item .payment-status.paid{background:rgba(52,211,153,0.15);color:#34d399}
+.manual-payment-item .payment-meta{font-size:13px;color:var(--text-light);margin:4px 0}
+.manual-payment-item .payment-message{margin:6px 0}
 #toast-container{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
 .toast{background:#1f1f3a;color:var(--text);padding:10px 20px;border-radius:12px;box-shadow:var(--shadow);border-left:4px solid var(--primary);animation:slideUp .3s ease;font-size:13px}
 .toast.error{border-left-color:var(--secondary)}
@@ -114,6 +123,7 @@ th{color:var(--text-light);font-weight:600}
 <div class="sidebar-item" onclick="switchTab('news', this)"><i class="fas fa-newspaper"></i> <span>Tin tức</span></div>
 <div class="sidebar-item" onclick="switchTab('orders', this)"><i class="fas fa-shopping-cart"></i> <span>Đơn hàng</span></div>
 <div class="sidebar-item" onclick="switchTab('balances', this)"><i class="fas fa-wallet"></i> <span>Số dư</span></div>
+<div class="sidebar-item" onclick="switchTab('payments', this)"><i class="fas fa-credit-card"></i> <span>Nạp thủ công</span></div>
 <div class="sidebar-item" onclick="switchTab('support', this)"><i class="fas fa-headset"></i> <span>Hỗ trợ</span></div>
 <div class="sidebar-item" onclick="switchTab('logs', this)"><i class="fas fa-history"></i> <span>Logs</span></div>
 </div>
@@ -132,12 +142,12 @@ th{color:var(--text-light);font-weight:600}
 <div id="panel-news" class="panel"></div>
 <div id="panel-orders" class="panel"></div>
 <div id="panel-balances" class="panel"></div>
+<div id="panel-payments" class="panel"></div>
 <div id="panel-support" class="panel"></div>
 <div id="panel-logs" class="panel"></div>
 </div>
 </main>
 <div id="toast-container"></div>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 function toggleSidebar(){var e=document.getElementById('sidebar'),t=document.getElementById('sidebarOverlay');e.classList.toggle('open'),t.classList.toggle('active')}
 function showToast(e,t){t===undefined&&(t=!1);var n=document.getElementById('toast-container'),o=document.createElement('div');o.className='toast'+(t?' error':''),o.innerHTML='<span>'+e+'</span>',n.appendChild(o),setTimeout(function(){o.style.opacity='0',setTimeout(function(){o.remove()},300)},3500)}
@@ -151,7 +161,7 @@ async function authAdmin(){var e=document.getElementById('adm-user').value.trim(
 async function logoutAdmin(){await fetch('/api/admin/logout',{method:'POST'}),document.getElementById('login-wrapper').classList.remove('hidden'),document.getElementById('sidebar').style.display='none',document.getElementById('main').style.display='none',document.getElementById('adm-pass').value='',document.getElementById('adm-user').value='',showToast('Đã đăng xuất'),window.innerWidth<=768&&toggleSidebar()}
 var currentTab='dashboard';
 
-async function switchTab(e,t){t===undefined&&(t=null),currentTab=e;var n=document.querySelectorAll('.panel');for(var o=0;o<n.length;o++)n[o].classList.remove('active');var i=document.querySelectorAll('.sidebar-item');for(var a=0;a<i.length;a++)i[a].classList.remove('active');if(t)t.classList.add('active');else{var r=document.querySelectorAll('.sidebar-item');for(var l=0;l<r.length;l++){r[l].textContent.trim().toLowerCase().includes(e)&&r[l].classList.add('active')}}var s=document.getElementById('panel-'+e);if(s){s.classList.add('active');var c=document.querySelector('.sidebar-item.active span');document.getElementById('panel-title').innerText=c?c.innerText:'Dashboard';if(e==='dashboard')loadDashboard();else if(e==='cats')loadCategories();else if(e==='prods')loadProducts();else if(e==='news')loadNews();else if(e==='orders')loadOrders();else if(e==='balances')loadBalances();else if(e==='support')loadSupport();else if(e==='logs')loadLogs();window.innerWidth<=768&&toggleSidebar()}}
+async function switchTab(e,t){t===undefined&&(t=null),currentTab=e;var n=document.querySelectorAll('.panel');for(var o=0;o<n.length;o++)n[o].classList.remove('active');var i=document.querySelectorAll('.sidebar-item');for(var a=0;a<i.length;a++)i[a].classList.remove('active');if(t)t.classList.add('active');else{var r=document.querySelectorAll('.sidebar-item');for(var l=0;l<r.length;l++){r[l].textContent.trim().toLowerCase().includes(e)&&r[l].classList.add('active')}}var s=document.getElementById('panel-'+e);if(s){s.classList.add('active');var c=document.querySelector('.sidebar-item.active span');document.getElementById('panel-title').innerText=c?c.innerText:'Dashboard';if(e==='dashboard')loadDashboard();else if(e==='cats')loadCategories();else if(e==='prods')loadProducts();else if(e==='news')loadNews();else if(e==='orders')loadOrders();else if(e==='balances')loadBalances();else if(e==='payments')loadManualPayments();else if(e==='support')loadSupport();else if(e==='logs')loadLogs();window.innerWidth<=768&&toggleSidebar()}}
 
 var revenueChart=null;
 async function loadDashboard(e){e===undefined&&(e='day');var t=document.getElementById('panel-dashboard');t.innerHTML='<div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn-add" style="padding:6px 16px;font-size:13px;'+(e==='day'?'background:var(--accent);color:#000;':'')+'" onclick="loadDashboard(\'day\')">Ngày</button><button class="btn-add" style="padding:6px 16px;font-size:13px;'+(e==='week'?'background:var(--accent);color:#000;':'')+'" onclick="loadDashboard(\'week\')">Tuần</button><button class="btn-add" style="padding:6px 16px;font-size:13px;'+(e==='month'?'background:var(--accent);color:#000;':'')+'" onclick="loadDashboard(\'month\')">Tháng</button><button class="btn-add" style="padding:6px 16px;font-size:13px;'+(e==='year'?'background:var(--accent);color:#000;':'')+'" onclick="loadDashboard(\'year\')">Năm</button></div><div class="stats-grid" id="stats-grid"><div class="stat-card"><h3 id="stat-total">0đ</h3><p>Doanh thu</p></div><div class="stat-card"><h3 id="stat-count">0</h3><p>Số đơn</p></div><div class="stat-card"><h3 id="stat-avg">0đ</h3><p>Trung bình</p></div><div class="stat-card"><h3 id="stat-users">0</h3><p>Người dùng</p></div></div><div style="background:var(--card-bg);border-radius:var(--radius);padding:16px;margin-bottom:16px;border:1px solid var(--border);"><canvas id="revenueChart" height="200"></canvas></div><p style="color:var(--text-light);font-size:13px;">Chọn các tab bên trái để quản lý chi tiết.</p>';try{var n=await fetch('/api/admin/revenue?period='+e);if(!n.ok){var o=await n.text();throw new Error('HTTP '+n.status+': '+o)}var i=await n.json();if(!i.success)throw new Error(i.error||'Lỗi API');var a=await fetch('/api/admin/all-balances'),r=await a.json();document.getElementById('stat-total').innerText=formatVND(i.total||0),document.getElementById('stat-count').innerText=i.count||0,document.getElementById('stat-avg').innerText=formatVND(i.avg||0),document.getElementById('stat-users').innerText=r.length||0;var l=i.details.map(function(e){return e.label}),s=i.details.map(function(e){return e.total}),c=document.getElementById('revenueChart').getContext('2d');revenueChart&&revenueChart.destroy(),revenueChart=new Chart(c,{type:'bar',data:{labels:l.length?l:['Không có dữ liệu'],datasets:[{label:'Doanh thu',data:l.length?s:[0],backgroundColor:'rgba(108,99,255,0.6)',borderColor:'#6C63FF',borderWidth:1}]},options:{responsive:!0,maintainAspectRatio:!0,plugins:{legend:{display:!1}},scales:{y:{beginAtZero:!0,ticks:{callback:function(e){return formatVND(e)}}}}}})}catch(e){document.querySelector('#stats-grid').innerHTML='<p style="color:var(--secondary);">❌ Lỗi tải dữ liệu: '+e.message+'</p>'}}
@@ -175,9 +185,11 @@ async function loadBalances(){var e=document.getElementById('panel-balances');e.
 function adjustBalancePrompt(e){var t=prompt('Nhập số tiền điều chỉnh cho '+e+' (dùng + để cộng, - để trừ):\nVí dụ: +50000 hoặc -20000');if(t===null)return;var n=parseInt(t);if(isNaN(n)){showToast('Số tiền không hợp lệ!',!0);return}var o=prompt('Lý do (không bắt buộc):')||'';adjustBalance(e,n,o)}
 async function adjustBalance(e,t,n){try{var o=await fetch('/api/admin/adjust-balance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e,amount:t,reason:n})}),i=await o.json();i.success?(showToast('✅ Đã điều chỉnh số dư '+e+': '+formatVND(t)),loadBalances()):showToast(i.message||'Lỗi điều chỉnh',!0)}catch(e){showToast('Lỗi kết nối!',!0)}}
 
+async function loadManualPayments(){var e=document.getElementById('panel-payments');e.innerHTML='<p><i class="fas fa-spinner fa-spin"></i> Đang tải...</p>';try{var t=await fetch('/api/admin/manual-payments'),n=await t.json(),o='<h3 style="margin-bottom:12px;">💳 Yêu cầu nạp tiền thủ công</h3><div class="glass-box">';if(n.length===0)o+='<p style="color:var(--text-light);text-align:center;padding:20px;">Chưa có yêu cầu nào.</p>';else{for(var i=0;i<n.length;i++){var a=n[i],r=a.status==='PENDING'?'pending':'paid';o+='<div class="manual-payment-item"><div class="payment-header"><strong>'+a.email+'</strong><span class="payment-status '+r+'">'+(a.status==='PENDING'?'⏳ Chờ xử lý':'✅ Đã xác nhận')+'</span></div><div class="payment-meta">💰 Số tiền: <strong>'+formatVND(a.amount)+'</strong></div><div class="payment-meta">🏦 Ngân hàng: '+a.bank_name+' - '+a.bank_account+'</div><div class="payment-meta">📅 '+new Date(a.created_at).toLocaleString()+'</div><div class="payment-message">'+a.message+'</div>';if(a.status==='PENDING'){o+='<button class="btn-add" style="padding:4px 14px;font-size:12px;margin-top:6px;" onclick="confirmManualPayment(\''+a.id+'\')"><i class="fas fa-check"></i> Xác nhận đã nhận tiền</button>'}o+='</div>'}}o+='</div>',e.innerHTML=o}catch(e){e.innerHTML='<p style="color:var(--secondary);">Lỗi tải dữ liệu</p>'}}
+async function confirmManualPayment(e){if(!confirm('✅ Xác nhận đã nhận tiền và cộng vào tài khoản khách hàng?'))return;try{var t=await fetch('/api/admin/confirm-manual-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:e})}),n=await t.json();n.success?(showToast('✅ Đã xác nhận và cộng tiền cho khách!'),loadManualPayments(),loadBalances()):showToast('❌ Lỗi: '+n.message,!0)}catch(e){showToast('❌ Lỗi kết nối!',!0)}}
+
 function loadSupport(){var e=document.getElementById('panel-support'),t=JSON.parse(localStorage.getItem('dth_support_tickets')||'[]');if(!t.length){e.innerHTML='<p style="color:var(--text-light);text-align:center;padding:20px;">Chưa có yêu cầu hỗ trợ nào.</p>';return}var n='<h3 style="margin-bottom:12px;">📋 Danh sách yêu cầu hỗ trợ</h3><div class="glass-box">';for(var o=0;o<t.length;o++){var i=t[o],a=i.status==='Chờ xử lý'?'pending':'resolved';n+='<div class="support-ticket"><div class="ticket-header"><strong>'+i.subject+'</strong><span class="ticket-status '+a+'">'+i.status+'</span></div><div class="ticket-meta">'+i.name+' ('+i.email+') - '+i.created+'</div><div class="ticket-message">'+i.message+'</div>',i.status==='Chờ xử lý'&&(n+='<button class="btn-add" style="padding:4px 14px;font-size:12px;" onclick="resolveSupport(\''+i.id+'\')">Đánh dấu đã xử lý</button>'),n+='</div>'}n+='</div>',e.innerHTML=n}
 function resolveSupport(e){var t=JSON.parse(localStorage.getItem('dth_support_tickets')||'[]');for(var n=0;n<t.length;n++)if(t[n].id==e){t[n].status='Đã xử lý';break}localStorage.setItem('dth_support_tickets',JSON.stringify(t)),loadSupport(),showToast('Đã cập nhật trạng thái yêu cầu')}
-
 async function loadLogs(){var e=document.getElementById('panel-logs');try{var t=await fetch('/api/admin/logs'),n=await t.json();if(!n.length){e.innerHTML='<p style="color:var(--text-light);">Chưa có log.</p>';return}var o='';for(var i=0;i<n.length;i++){var a=n[i];o+='<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap;font-size:13px;"><span style="color:var(--text-light);">'+new Date(a.created_at).toLocaleString()+'</span><span style="font-weight:600;">'+a.email+'</span><span>'+a.action+'</span><span style="color:var(--text-light);">'+(a.detail||'')+'</span></div>'}e.innerHTML=o}catch(e){e.innerHTML='<p style="color:var(--secondary);">Lỗi tải logs</p>'}}
 
 window.onload=function(){document.getElementById('login-wrapper').classList.remove('hidden'),document.getElementById('sidebar').style.display='none',document.getElementById('main').style.display='none'};
