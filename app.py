@@ -1,14 +1,15 @@
-from flask import Flask, request, jsonify, session, send_from_directory
-from flask_cors import CORS
 import os
-import json
 import hashlib
-import uuid
 import requests
+import json
+import uuid
 from datetime import datetime
+from flask import Flask, request, jsonify, session, send_from_directory, redirect
+from flask_cors import CORS
+from authlib.integrations.flask_client import OAuth
 
 app = Flask(__name__, static_folder='.', static_url_path='')
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this')
+app.secret_key = 'your-secret-key-change-this'
 CORS(app, supports_credentials=True)
 
 # ============ DATABASE ============
@@ -19,7 +20,7 @@ def load_data():
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     except:
-        return {'users': [], 'products': [], 'orders': [], 'balances': {}, 'topups': [], 'news': []}
+        return {'users': [], 'products': [], 'orders': [], 'balances': {}, 'topups': [], 'news': [], 'manual_payments': []}
 
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -28,21 +29,40 @@ def save_data(data):
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Tạo data.json nếu chưa có
+def formatVND(num):
+    return f"{int(num):,}đ"
+
 if not os.path.exists(DATA_FILE):
-    save_data({'users': [], 'products': [], 'orders': [], 'balances': {}, 'topups': [], 'news': []})
+    save_data({'users': [], 'products': [], 'orders': [], 'balances': {}, 'topups': [], 'news': [], 'manual_payments': []})
+
+# ============ CẤU HÌNH ============
+ADMIN_USERNAME = 'adminproxyvip'
+ADMIN_PASSWORD = 'ndlxtp'
+
+# TheSieuRe - Nạp thẻ
+THE_SIEU_RE_PARTNER_ID = '48133853439'
+THE_SIEU_RE_PARTNER_KEY = '0575fbad2a38b22febddee3344fa11b6'
+
+# Google OAuth
+GOOGLE_CLIENT_ID = '818511008345-nkc6m1tt8ksluo8131qh4im977bnej1g.apps.googleusercontent.com'
+GOOGLE_CLIENT_SECRET = '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'
+GOOGLE_REDIRECT_URI = 'https://ten-ban.onrender.com/api/auth/google-callback'
+
+# ============ GOOGLE OAUTH ============
+oauth = OAuth(app)
+
+google = oauth.register(
+    name='google',
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    access_token_url='https://oauth2.googleapis.com/token',
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    userinfo_url='https://www.googleapis.com/oauth2/v1/userinfo',
+    client_kwargs={'scope': 'openid email profile'},
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration'
+)
 
 # ============ ADMIN AUTH ============
-ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'adminproxyvip')
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'ndlxtp')
-PARTNER_ID = os.environ.get('THE_SIEU_RE_PARTNER_ID', '')
-PARTNER_KEY = os.environ.get('THE_SIEU_RE_PARTNER_KEY', '')
-
-def require_admin():
-    if not session.get('admin_logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
-    return None
-
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
     data = request.json
@@ -69,15 +89,15 @@ def admin_logout():
 # ============ ADMIN API ============
 @app.route('/api/admin/orders', methods=['GET'])
 def admin_orders():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     db = load_data()
     return jsonify(db.get('orders', []))
 
 @app.route('/api/admin/update-order', methods=['POST'])
 def admin_update_order():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     
     data = request.json
     order_id = data.get('id')
@@ -97,8 +117,8 @@ def admin_update_order():
 
 @app.route('/api/admin/all-balances', methods=['GET'])
 def admin_all_balances():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     
     db = load_data()
     result = []
@@ -108,39 +128,33 @@ def admin_all_balances():
 
 @app.route('/api/admin/topup-list', methods=['GET'])
 def admin_topup_list():
-    auth = require_admin()
-    if auth: return auth
-    
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     db = load_data()
     return jsonify(db.get('topups', []))
 
 @app.route('/api/admin/adjust-balance', methods=['POST'])
 def admin_adjust_balance():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     
     data = request.json
     email = data.get('email')
     amount = int(data.get('amount', 0))
-    reason = data.get('reason', '')
     
     db = load_data()
-    old_balance = db['balances'].get(email, 0)
-    db['balances'][email] = old_balance + amount
+    db['balances'][email] = db['balances'].get(email, 0) + amount
     save_data(db)
     
     return jsonify({'success': True, 'newBalance': db['balances'][email]})
 
 @app.route('/api/admin/revenue', methods=['GET'])
 def admin_revenue():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     
-    period = request.args.get('period', 'day')
     db = load_data()
     orders = db.get('orders', [])
-    
-    # Lọc đơn hàng đã thanh toán
     paid_orders = [o for o in orders if o.get('status') in ['PAID', 'Hoàn tất']]
     
     total = sum(o.get('total', 0) for o in paid_orders)
@@ -160,15 +174,46 @@ def admin_revenue():
 
 @app.route('/api/admin/logs', methods=['GET'])
 def admin_logs():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     return jsonify([])
+
+# ============ MANUAL PAYMENT - ADMIN ============
+@app.route('/api/admin/manual-payments', methods=['GET'])
+def admin_manual_payments():
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    db = load_data()
+    return jsonify(db.get('manual_payments', []))
+
+@app.route('/api/admin/confirm-manual-payment', methods=['POST'])
+def confirm_manual_payment():
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+    payment_id = data.get('paymentId')
+    
+    db = load_data()
+    payments = db.get('manual_payments', [])
+    
+    for payment in payments:
+        if payment['id'] == payment_id and payment['status'] == 'PENDING':
+            email = payment['email']
+            amount = payment['amount']
+            db['balances'][email] = db['balances'].get(email, 0) + amount
+            payment['status'] = 'PAID'
+            save_data(db)
+            return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'message': 'Không tìm thấy yêu cầu'}), 404
 
 # ============ ADD PRODUCT ============
 @app.route('/api/admin/add-product', methods=['POST'])
 def add_product():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     
     data = request.json
     db = load_data()
@@ -190,8 +235,8 @@ def add_product():
 
 @app.route('/api/admin/delete-product', methods=['POST'])
 def delete_product():
-    auth = require_admin()
-    if auth: return auth
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     
     data = request.json
     product_id = data.get('id')
@@ -290,6 +335,56 @@ def forgot_password():
             return jsonify({'success': True, 'message': 'Link đặt lại mật khẩu đã gửi đến email của bạn'})
     
     return jsonify({'success': False, 'message': 'Email không tồn tại'}), 404
+
+# ============ GOOGLE LOGIN ============
+@app.route('/api/auth/google')
+def google_login():
+    if not GOOGLE_CLIENT_ID:
+        return "Google Client ID chưa được cấu hình!", 500
+    return google.authorize_redirect(GOOGLE_REDIRECT_URI)
+
+@app.route('/api/auth/google-callback')
+def google_callback():
+    try:
+        token = google.authorize_access_token()
+        resp = google.get('https://www.googleapis.com/oauth2/v1/userinfo')
+        user_info = resp.json()
+        
+        email = user_info.get('email')
+        name = user_info.get('name', email.split('@')[0])
+        picture = user_info.get('picture', '')
+        
+        if not email:
+            return redirect('/login?error=no_email')
+        
+        db = load_data()
+        user_exists = False
+        
+        for user in db['users']:
+            if user['email'] == email:
+                user_exists = True
+                break
+        
+        if not user_exists:
+            new_user = {
+                'id': str(uuid.uuid4()),
+                'email': email,
+                'password': '',
+                'display_name': name,
+                'avatar': picture,
+                'created_at': datetime.now().isoformat(),
+                'auth_provider': 'google'
+            }
+            db['users'].append(new_user)
+            db['balances'][email] = 0
+            save_data(db)
+        
+        session['user_email'] = email
+        return redirect('/')
+    
+    except Exception as e:
+        print(f"❌ Google login error: {e}")
+        return redirect('/login?error=google_auth_failed')
 
 # ============ BALANCE ============
 @app.route('/api/balance', methods=['GET'])
@@ -391,7 +486,7 @@ def user_orders():
     orders = [o for o in db['orders'] if o['email'] == email]
     return jsonify(orders)
 
-# ============ TOPUP ============
+# ============ TOPUP - NẠP THẺ CÀO ============
 @app.route('/api/topup', methods=['POST'])
 def topup():
     email = session.get('user_email')
@@ -399,78 +494,76 @@ def topup():
         return jsonify({'error': 'Unauthorized'}), 401
     
     data = request.json
-    card_number = data.get('cardNumber')
-    card_serial = data.get('cardSerial')
-    card_type = data.get('cardType')
-    card_value = int(data.get('cardValue', 0))
-    
-    # Nếu có API key thì gọi thật, nếu không thì mô phỏng
-    if PARTNER_ID and PARTNER_KEY:
-        return topup_with_api(email, card_number, card_serial, card_type, card_value)
-    else:
-        # Mô phỏng nạp thẻ
-        db = load_data()
-        db['balances'][email] = db['balances'].get(email, 0) + card_value
-        db['topups'].append({
-            'email': email,
-            'card_type': card_type,
-            'declared_value': card_value,
-            'amount_received': card_value,
-            'status': 'success',
-            'created_at': datetime.now().isoformat()
-        })
-        save_data(db)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Nạp thẻ thành công',
-            'newBalance': db['balances'][email]
-        })
-
-def topup_with_api(email, card_number, card_serial, card_type, card_value):
-    # Tạo chữ ký
+    telco = data.get('cardType')
+    code = data.get('cardNumber')
+    serial = data.get('cardSerial')
+    amount = int(data.get('cardValue', 0))
     request_id = str(int(datetime.now().timestamp()))
-    raw_sign = PARTNER_KEY + card_type + card_number + card_serial + str(card_value) + request_id
+    
+    if not telco or not code or not serial or not amount:
+        return jsonify({
+            'success': False,
+            'message': 'Vui lòng nhập đầy đủ thông tin thẻ!'
+        }), 400
+    
+    raw_sign = THE_SIEU_RE_PARTNER_KEY + telco + code + serial + str(amount) + request_id
     sign = hashlib.md5(raw_sign.encode()).hexdigest()
     
-    payload = {
-        'telco': card_type,
-        'code': card_number,
-        'serial': card_serial,
-        'amount': str(card_value),
+    url = "https://thesieure.com/chargingws/v2"
+    params = {
+        'partner_id': THE_SIEU_RE_PARTNER_ID,
+        'telco': telco,
+        'code': code,
+        'serial': serial,
+        'amount': str(amount),
         'request_id': request_id,
-        'partner_id': PARTNER_ID,
         'sign': sign,
         'command': 'charging'
     }
     
     try:
-        response = requests.post('https://thesieure.com/chargingws/v2', data=payload, timeout=30)
+        response = requests.get(url, params=params, timeout=30)
         result = response.json()
         
+        db = load_data()
+        
         if result.get('status') == 1:
-            real_value = int(result.get('value', card_value))
-            db = load_data()
+            real_value = int(result.get('value', amount))
             db['balances'][email] = db['balances'].get(email, 0) + real_value
+            
             db['topups'].append({
                 'email': email,
-                'card_type': card_type,
-                'declared_value': card_value,
+                'card_type': telco,
+                'declared_value': amount,
                 'amount_received': real_value,
                 'status': 'success',
+                'request_id': request_id,
                 'created_at': datetime.now().isoformat()
             })
             save_data(db)
             
             return jsonify({
                 'success': True,
-                'message': f'Nạp thành công {real_value}đ',
+                'message': f'Nạp thành công {formatVND(real_value)}',
                 'newBalance': db['balances'][email]
             })
         else:
+            error_msg = result.get('message', 'Thẻ không hợp lệ!')
+            db['topups'].append({
+                'email': email,
+                'card_type': telco,
+                'declared_value': amount,
+                'amount_received': 0,
+                'status': 'failed',
+                'message': error_msg,
+                'request_id': request_id,
+                'created_at': datetime.now().isoformat()
+            })
+            save_data(db)
+            
             return jsonify({
                 'success': False,
-                'message': result.get('message', 'Thẻ không hợp lệ')
+                'message': error_msg
             }), 400
             
     except Exception as e:
@@ -479,34 +572,34 @@ def topup_with_api(email, card_number, card_serial, card_type, card_value):
             'message': f'Lỗi kết nối: {str(e)}'
         }), 500
 
-# ============ CALLBACK THESIEURE ============
-@app.route('/api/thesieure-callback', methods=['POST'])
-def thesieure_callback():
-    """
-    TheSieuRe gửi kết quả về đây
-    """
+# ============ MANUAL PAYMENT - USER ============
+@app.route('/api/manual-payment-notify', methods=['POST'])
+def manual_payment_notify():
     data = request.json
-    print("📩 Nhận callback từ TheSieuRe:", data)
-    
-    status = data.get('status')
-    request_id = data.get('request_id')
     email = data.get('email')
-    value = data.get('value')
+    amount = data.get('amount')
+    bank_account = data.get('bank_account')
+    bank_name = data.get('bank_name')
     
-    if status == 1 and email:
-        db = load_data()
-        db['balances'][email] = db['balances'].get(email, 0) + int(value)
-        db['topups'].append({
-            'email': email,
-            'amount': value,
-            'status': 'callback_success',
-            'created_at': datetime.now().isoformat()
-        })
-        save_data(db)
-        print(f"✅ Nạp thành công {value}đ cho {email}")
-        return jsonify({'success': True}), 200
+    db = load_data()
     
-    return jsonify({'success': False}), 200
+    if 'manual_payments' not in db:
+        db['manual_payments'] = []
+    
+    db['manual_payments'].append({
+        'id': str(int(datetime.now().timestamp())),
+        'email': email,
+        'amount': amount,
+        'bank_account': bank_account,
+        'bank_name': bank_name,
+        'status': 'PENDING',
+        'created_at': datetime.now().isoformat(),
+        'message': f'Khách hàng {email} đã chuyển khoản {formatVND(amount)} vào tài khoản {bank_account}'
+    })
+    
+    save_data(db)
+    
+    return jsonify({'success': True})
 
 # ============ CREATE TOPUP QR ============
 @app.route('/api/create-topup-qr', methods=['POST'])
@@ -528,7 +621,6 @@ def create_topup_qr():
 
 @app.route('/api/check-topup', methods=['GET'])
 def check_topup():
-    order_id = request.args.get('id')
     return jsonify({'status': 'PAID', 'amount': 50000})
 
 # ============ SERVE HTML ============
